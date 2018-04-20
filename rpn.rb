@@ -1,136 +1,114 @@
-# Handles calculations for tokens in reverse polish notation
-class RPN
-  def initialize
-    @stack = [] # Stack of operands
-    @vars = {} # Case-insensitive hash of variable -> value mappings
-  end
-
-  def push(token)
-    @stack.push(token)
-  end
-
-  def pop
-    result = @stack.pop
-    result
-  end
-
-  def add(op1, op2)
-    result = op1 + op2
-    result
-  end
-
-  def multiply(op1, op2)
-    result = op1 * op2
-    result
-  end
-
-  def subtract(op1, op2)
-    result = op1 - op2
-    result
-  end
-
-  # Returns nil if dividing by 0 (to be caught when checking result)
-  def divide(op1, op2)
-    begin
-      result = op1 / op2
-    rescue ZeroDivisionError
-      result = nil
-    end
-    result
-  end
-
-  def valid_var_name?(string)
-    regex = Regexp.new('^[a-zA-Z]{1}$')
-    match = regex.match(string)
-    return false if match.nil?
-
-    match[0] == string
-  end
-
-  def add_var(name, value)
-    @vars[name.downcase] = value
-  end
-
-  def get_var(name)
-    result = @vars[name.downcase]
-    result
-  end
-
-  def var?(name)
-    @vars.key?(name.downcase)
-  end
-
-  def int?(string)
-    string.to_i.to_s == string
-  end
-
-  def operator?(token)
-    operators = ['+', '-', '*', '/']
-    if operators.include? token
-      true
-    else
-      false
-    end
-  end
-
-  def operand?(token)
-    if int?(token) || var?(token)
-      true
-    else
-      false
-    end
-  end
-
-  def push_operand(operand)
-    if int? operand
-      push operand.to_i
-    elsif var? operand
-      push get_var(operand)
-    end
-  end
-
-  def calculate(token, op1, op2)
-    case token
-    when '+'
-      result = add(op1, op2)
-    when '-'
-      result = subtract(op1, op2)
-    when '*'
-      result = multiply(op1, op2)
-    when '/'
-      result = divide(op1, op2)
-      raise 'divided by 0' if result.nil?
-    end
-    result
-  end
-
-  def do_operation(token)
-    op2 = pop
-    op1 = pop
-    raise 'missing operand' if op1.nil? || op2.nil?
-    result = calculate(token, op1, op2)
-    push result
-  end
-
-  def get_result(token_arr)
-    token_arr.each do |token|
-      if operator? token
-        do_operation(token)
-      elsif operand? token
-        push_operand(token)
-      else
-        raise 'bad token'
-      end
-    end
-    pop
-  end
-end
-
+require_relative 'rpn_calc'
 require 'highline'
+
 rpn = RPN.new
-cli = HighLine.new
-loop do
-  input = cli.ask '> '
-  result = rpn.get_result(input.split)
-  puts "> #{result}"
+if ARGV.count.zero?
+  cli = HighLine.new
+  line = 1
+  loop do
+    begin
+      input = cli.ask '> '
+    rescue Interrupt
+      puts
+      exit(5)
+    end
+    if input == ''
+      line += 1
+      next
+    end
+    input = input.split
+    keyword = input[0].downcase
+    var_name = ''
+    exit if keyword == 'quit'
+    if keyword == 'let'
+      var_name = input[1]
+      unless rpn.valid_var_name? var_name
+        puts "Line #{line}: Invalid variable name"
+        line += 1
+        next
+      end
+      input = input.drop(2)
+    elsif keyword == 'print'
+      input = input.drop(1)
+    elsif !(rpn.int? keyword) && !(rpn.var? keyword)
+      puts "Line #{line}: Unknown keyword #{keyword}"
+      line += 1
+      next
+    end
+    begin
+      result = rpn.get_result(input)
+      rpn.add_var(var_name, result) unless var_name == '' || !rpn.count.zero?
+    rescue MissingOperandError => err
+      result = "Line #{line}: Operator #{err.operator} applied to empty stack"
+    rescue ZeroDivisionError
+      result = "Line #{line}: Attempted division by 0"
+    rescue UninitializedVarError => err
+      result = "Line #{line}: Variable #{err.var_name} is not initialized"
+    rescue InvalidTokenError => err
+      result = "Line #{line}: Invalid token #{err.token}"
+    rescue ArgsLeftOnStackError => err
+      result = "Line #{line}: #{err.num} elements in stack after evaluation"
+      rpn.clear
+    end
+    puts result.to_s
+    line += 1
+  end
+else
+  line = 1
+  ARGV.each do |file_name|
+    begin
+      text = File.open(file_name).read
+    rescue Errno::ENOENT
+      puts "File not found or error reading file: #{file_name}"
+      exit(5)
+    end
+    text.gsub!(/\r\n?/, "\n")
+    text.each_line do |file_line|
+      input = file_line.chomp
+      if input == ''
+        line += 1
+        next
+      end
+      input = input.split
+      keyword = input[0].downcase
+      var_name = ''
+      to_print = false
+      exit if keyword == 'quit'
+      if keyword == 'let'
+        var_name = input[1]
+        unless rpn.valid_var_name? var_name
+          puts "Line #{line}: Invalid variable name"
+          exit(5)
+        end
+        input = input.drop(2)
+      elsif keyword == 'print'
+        input = input.drop(1)
+        to_print = true
+      elsif !(rpn.int? keyword) && !(rpn.var? keyword)
+        puts "Line #{line}: Unknown keyword #{keyword}"
+        exit(4)
+      end
+      begin
+        result = rpn.get_result(input)
+        rpn.add_var(var_name, result) unless var_name == '' || !rpn.count.zero?
+      rescue MissingOperandError => err
+        puts "Line #{line}: Operator #{err.operator} applied to empty stack"
+        exit(2)
+      rescue ZeroDivisionError
+        puts "Line #{line}: Attempted division by 0"
+        exit(5)
+      rescue UninitializedVarError => err
+        puts "Line #{line}: Variable #{err.var_name} is not initialized"
+        exit(1)
+      rescue InvalidTokenError => err
+        puts "Line #{line}: Invalid token #{err.token}"
+        exit(5)
+      rescue ArgsLeftOnStackError => err
+        puts "Line #{line}: #{err.num} elements in stack after evaluation"
+        exit(3)
+      end
+      puts result.to_s if to_print
+      line += 1
+    end
+  end
 end

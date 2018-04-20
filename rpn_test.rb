@@ -3,7 +3,7 @@ SimpleCov.start
 
 require 'minitest/autorun'
 
-require_relative 'rpn'
+require_relative 'rpn_calc'
 
 class RPNTest < Minitest::Test
   def setup
@@ -20,6 +20,19 @@ class RPNTest < Minitest::Test
   # Test that popping from an empty stack returns nil
   def test_pop_empty
     assert_nil @rpn.pop
+  end
+
+  # Test that empty stack is empty
+  def test_empty
+    assert_equal 0, @rpn.count
+  end
+
+  # Test clearing the stack with one item in it
+  def test_clear
+    token = 1
+    @rpn.push(token)
+    @rpn.clear
+    assert_equal 0, @rpn.count
   end
 
   # Test adding two ints
@@ -99,6 +112,11 @@ class RPNTest < Minitest::Test
   def test_operand_var
     @rpn.add_var("X", 10)
     assert @rpn.operand?("X")
+  end
+
+  # Test that non-existent var name isn't an operand
+  def test_operand_invalid
+    refute @rpn.operand?("b")
   end
 
   # Test that pushing integer operand pushes it as an int
